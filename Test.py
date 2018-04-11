@@ -89,14 +89,6 @@ def load(test):
         return data
 
 
- #def runMlp(train_data, train_labels, test_data, test_labels):
-  #  mlp = MLPClassifier(solver='sgd', learning_rate='adaptive', learning_rate_init=0.02, max_iter=10000,
-   #                     activation='tanh', momentum=0.9, shuffle=True)
-   # mlp.fit(train_data, train_labels)
-   # prediction = mlp.predict(test_data)
-   # return prediction
-
-
 def runSVM(train_data, train_labels, test_data, test_labels):
 
     svr_lin = svm.SVR(kernel="linear", C=1e3)
@@ -117,50 +109,102 @@ def runSVM(train_data, train_labels, test_data, test_labels):
     return prediction
 
 
-def runLSTM(trainX, trainY, testX, testY, scaler):
+def runLSTM(trainx, trainy, testx, testy, scaler):
 
-    print(np.shape(trainY))
+
+    n_neurons = 3;
+
     model = Sequential()
-    model.add(LSTM(400,input_shape=(2,3)))
-    model.add(Dense(2))
+    model.add(LSTM(n_neurons,input_shape=(3,3)))
+    model.add(Dense(3))
     model.compile(loss='mae',optimizer='adam')
-    history = model.fit(trainX, trainY, epochs=50, batch_size=1, validation_data=(testX, testY), verbose=2, shuffle=False)
+    #history = model.fit(trainx, trainy, epochs=100, batch_size=1, validation_data=(testx, testy), verbose=2, shuffle=False)
 
     #plt.plot(history.history['loss'], label='train')
    # plt.plot(history.history['val_loss'], label='test')
    # plt.legend()
    # plt.show()
-
-    yhat = model.predict(testX)
-
+    testx = testx.reshape(300,1,3)
+    print(np.shape(testx))
+    yhat = model.predict(testx)
+    yhat = yhat.reshape(300,1)
+    yhat = yhat[:100]
+    testy = testy.reshape(300,1)
+    testy = testy[:100]
 
     plt.plot(yhat,label='results')
-    plt.plot(testY, label="realResults")
+    plt.plot(testy, label="realResults")
     plt.legend()
     plt.show()
 
-    test_X = testX.reshape((testX.shape[0], testX.shape[2]))
+    print(np.shape(testx))
+    testx = testx.reshape(300,3)
+
+    testx = testx[:100]
+
     # invert scaling for forecast
-    inv_yhat = np.concatenate((yhat, test_X[:, 1:]), axis=1)
-    inv_yhat = scaler.inverse_transform(inv_yhat)
-    inv_yhat = inv_yhat[:, 0]
+    #test_x = testx.reshape((testx.shape[0], testx.shape[2]))
+    #inv_yhat = np.concatenate((yhat, testx[:, 1:]), axis=0)
+    #inv_yhat = scaler.inverse_transform(inv_yhat)
+    #inv_yhat = inv_yhat[:, 0]
     # invert scaling for actual
-    test_y = testY.reshape((len(testY), 1))
-    inv_y = np.concatenate((test_y, test_X[:, 1:]), axis=1)
-    inv_y = scaler.inverse_transform(inv_y)
-    inv_y = inv_y[:, 0]
+    #test_y = testy.reshape((len(testy), 1))
+    #inv_y = np.concatenate((test_y, test_x[:, 1:]), axis=1)
+    #inv_y = scaler.inverse_transform(inv_y)
+    #inv_y = inv_y[:, 0]
     # calculate RMSE
-    rmse = math.sqrt(metrics.mean_squared_error(inv_y, inv_yhat))
-    print('Test RMSE: %.3f' % rmse)
 
-#read dataset
-def readDataSet():
+    #rmse = math.sqrt(metrics.mean_squared_error(inv_y, inv_yhat))
+    #print('Test RMSE: %.3f' % rmse)
 
-    with open('oneinstance1.csv') as csvfile:
-        reader = csv.reader(csvfile)
-        data = []
-        for row in reader:
-            data.append([float(x) for x in row if is_number(x)])
+
+def readDataSet(size_samples):
+
+    var_type = "tipo"
+    var_wr = "wr"
+    var_wl = "wl"
+    var_br = "br"
+    var_bl = "bl"
+    var_speed = "s"
+    var_weight = "p"
+
+    type = []
+    wheelright = []
+    wheelleft = []
+    bearingright = []
+    bearingleft = []
+    speed = []
+    weight = []
+
+    series = pandas.read_csv('instances.csv', header=0,index_col=0, squeeze=True)
+
+    #get headers
+    headers = series.columns
+
+    #get values
+    values = series.values
+
+    data = []
+
+    for row in values:
+        for index, column in enumerate(row):
+            type.append(row[index])
+            if "wr" in headers[index]:
+                wheelright.append(column)
+            if "wl" in headers[index]:
+                wheelleft.append(column)
+            if "br" in headers[index]:
+                bearingright.append(column)
+            if "bl" in headers[index]:
+                bearingleft.append(column)
+            if "s" in headers[index]:
+                speed.append(column)
+            if "p" in headers[index]:
+                weight.append(column)
+        for index, values in enumerate(bearingright):
+            data.append([speed[index], weight[index], bearingright[index]])
+
+    data = np.array(data)
 
     return data
 
@@ -216,24 +260,9 @@ def createplotspecific(data):
     plt.title("weight", y=0.10, loc='right')
 
     plt.show()
-    newdata = []
 
-    rightbearing1 = []
-    speed1 = []
-    weight1 = []
+def series_to_supervised(data, n_in=1, n_out=1, dropnan=True):
 
-    for i in range(0,3):
-        values = data[i]
-        rightbearing1 = values[800:1200]
-        speed1 = values[1600:2000]
-        weight1 = values[2000:2400]
-
-        for j in range(0,400):
-            newdata.append([speed1[j],weight1[j],np.log(rightbearing1[j])])
-
-    return np.array(newdata)
-
-def series_to_supervised_copy(data, n_in=1, n_out=1, dropnan=True):
     n_vars = 1 if type(data) is list else data.shape[1]
     df = pandas.DataFrame(data)
     cols, names = list(), list()
@@ -254,80 +283,86 @@ def series_to_supervised_copy(data, n_in=1, n_out=1, dropnan=True):
 
     if dropnan:
         agg.dropna(inplace=True)
+
     return agg
+
+
+def create_tuples(data, n_samples):
+
+    # Separate data to predict
+    newdata = []
+
+    for i in range(0,n_samples):
+        values = data[i]
+        rightbearing1 = values[800:1200]
+        speed1 = values[1600:2000]
+        weight1 = values[2000:2400]
+
+        for j in range(0,400):
+            newdata.append([speed1[j],weight1[j],rightbearing1[j]])
+
+    return np.array(newdata)
+
+def prepare_data(series, n_test, n_lag, n_seq, n_samples):
+
+    values = series.astype("float32")
+
+    # normalize
+    scaler = preprocessing.MinMaxScaler(feature_range=(0, 1))
+    scaled = scaler.fit_transform(values)
+
+    sizei = 0
+    sizef = int(len(scaled)/n_samples)
+    value = sizef
+    newdataset = [];
+
+    # Change to a specific dataset
+    for i in range(0, 3):
+        supervised = series_to_supervised(scaled[sizei:sizef], 1, 1)
+        sizei = sizef
+        sizef += value
+        # Drop columns we don't want to predict
+        supervised.drop(supervised.columns[[3, 4]], axis=1, inplace=True)
+        values = supervised.values
+        for tuple in values:
+            newdataset.append(tuple)
+
+    newdataset = np.array(newdataset)
+    # split between train and test
+    train, test = newdataset[0:-n_test], newdataset[-n_test:]
+
+    train_X, train_Y, test_X, test_Y = train[:, :-1], train[:, -1], test[:, :-1], test[:, -1]
+
+    # split between samples
+    train_Y = train_Y.reshape((int(len(train_X)/n_samples), n_samples))
+    train_X = train_X.reshape((int(len(train_X)/n_samples), n_samples, train_X.shape[1]))
+
+    test_Y = test_Y.reshape((int(len(test_X)/n_samples), n_samples))
+    test_X = test_X.reshape((int(len(test_X)/n_samples),n_samples,3))
+
+    return train_X, train_Y, test_X, test_Y
 
 
 def main():
 
-    dataset = readDataSet()
+    # configure
+    n_lag = 1
+    n_seq = 3
+    n_test = 300
+    n_samples = 3
 
-    scaler = preprocessing.MinMaxScaler(feature_range=(0,1))
+    # read dataset #
+    dataset = readDataSet(n_samples)
 
-    ## TESTE LSTM ##
+    # TESTE LSTM #
 
-        ## Create one instance
-    oneinstance = createplotspecific(dataset)
+    # prepare data #
+    train_X, train_Y, test_X, test_Y = prepare_data(dataset, n_test, 1, 3, 3)
 
-    values = oneinstance.astype("float32")
-
-        ## Normalize
-    scaled = scaler.fit_transform(values)
-
-        ## Change to a specific dataset
-    reframed = series_to_supervised_copy(scaled,1,1)
-
-        ## Drop columns we don't want to predict
-    reframed.drop(reframed.columns[[3,4]],axis=1, inplace=True)
-
-        ## Get just the values
-    values = reframed.values
-
-        ## Separate train and test
-    train = values[0:800]
-    test = values[799:1200]
-    train_X = train[:, :-1]
-    train_Y = train[:, -1]
-    test_X = test[:, :-1]
-    test_Y = test[:, -1]
-
-    train_X = train_X.reshape((400,2,train_X.shape[1]))
-    train_Y = train_Y.reshape((400,2))
-
-    test_X = test_X.reshape((200,2,3))
-    test_Y = test_Y.reshape((200,2))
-
+    # run LSTM #
+    scaler = preprocessing.MinMaxScaler(feature_range=(0, 1))
     runLSTM(train_X,train_Y,test_X,test_Y,scaler)
 
-#    runSVM(train_X,train_Y,test_X,test_Y)
-    # FIM TESTE
-
-    #labels = scaled[:,-1]
-    #scaled = scaled[:,0:-1]
-
-    #series_to_supervised(scaled,1,1)
-    # print(labels)
-
-   # values = scaled.values
-
-
-    #train_data, test_data, train_labels, test_labels = train_test_split(scaled, labels, train_size=0.5)
-
-    #runLSTM(train_data,train_labels,test_data,train_labels)
-
-    #createplotspecific(scaled[301])
-
-
-
-    #dataset = load(data)
-    #data = dataset[:, 0: -1]
-    #labels = dataset[:, -1]  # last colum
-    #train_data, test_data, train_labels, test_labels = train_test_split(data, labels,train_size=0.5)
-
-    #prediction = runSVM(train_data, train_labels, test_data, test_labels,data)
-
-    #for val in range(len(test_labels)):
-     #   print(str(test_labels[val]) + ',' + str(prediction[val]))
-
-    #plot(test_labels, [prediction])
+    # END TESTE #
 
 main()
