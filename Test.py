@@ -23,7 +23,6 @@ import math
 
 #################################################################
 
-
 def is_number(s):
     try:
         float(s)
@@ -58,17 +57,6 @@ def simpleNormalization(data):
             #print(data[y, x])
 
     #print(data)
-
-def plot(test_data, series):
-    X = np.arange(len(test_data))
-
-
-    plt.plot(X, test_data, 'bs')
-    plt.show()
-
-    for s in series:
-        plt.plot(X, s, 'bs')
-    plt.show()
 
 
 def load(test):
@@ -109,23 +97,103 @@ def runSVM(train_data, train_labels, test_data, test_labels):
     return prediction
 
 
+def forecast_lstm(model, X, n_batch):
+    # reshape input pattern to [samples, timesteps, features]
+    X = X.reshape(1, 1, len(X))
+    # make forecast
+    forecast = model.predict(X, batch_size=n_batch)
+    # convert to array
+    return [x for x in forecast[0, :]]
+
+
+# fit an LSTM network to training data
+def fit_lstm(trainX, trainY, n_lag, n_seq, n_batch, nb_epoch, n_neurons):
+
+    # design network
+    model = Sequential()
+
+    model.add(LSTM(n_neurons, batch_input_shape=(n_batch, trainX.shape[1], trainX.shape[2]), stateful=True))
+    model.add(Dense(trainY.shape[1]))
+    model.compile(loss='mae', optimizer='adam', metrics=['accuracy'])
+    # fit network
+
+    #for i in range(nb_epoch):
+     #   history = model.fit(trainX, trainY, epochs=1, batch_size=n_batch, verbose=2, shuffle=False)
+      #  model.reset_states()
+
+    model.compile(loss='mae', optimizer='adam', metrics=['accuracy'])
+    history = model.fit(trainX, trainY, epochs=30, batch_size=1, verbose=2, shuffle=False)
+    return model
+
+
+def make_forecasts(model, n_batch, train_X,trai_Y, test_X, test_Y, n_lag, n_seq):
+    forecasts = list()
+    for i in range(len(test_X)):
+        X = test_X[i,0:3]
+        Y = test_Y[i, 3:]
+        # make forecast
+        forecast = forecast_lstm(model, X, n_batch)
+        # store the forecast
+        forecasts.append(forecast)
+    return forecasts
+
+def inverse_difference(last_ob, forecast):
+	# invert first forecast
+	enverted = list()
+	inverted.append(forecast[0] + last_ob)
+	# propagate difference forecast using inverted first value
+	for i in range(1, len(forecast)):
+		inverted.append(forecast[i] + inverted[i-1])
+	return inverted
+
+def inverse_transform(series, forecasts, scaler, n_test):
+	inverted = list()
+	for i in range(len(forecasts)):
+		# create array from forecast
+		forecast = array(forecasts[i])
+		forecast = forecast.reshape(1, len(forecast))
+		# invert scaling
+		inv_scale = scaler.inverse_transform(forecast)
+		inv_scale = inv_scale[0, :]
+		# invert differencing
+		index = len(series) - n_test + i - 1
+		last_ob = series.values[index]
+		inv_diff = inverse_difference(last_ob, inv_scale)
+		# store
+		inverted.append(inv_diff)
+	return inverted
+
+def difference(dataset, interval=1):
+	diff = list()
+	for i in range(interval, len(dataset)):
+		value = dataset[i] - dataset[i - interval]
+		diff.append(value)
+	return pandas.Series(diff)
+
 def runLSTM(trainx, trainy, testx, testy, scaler):
 
+    print(np.shape(trainx))
 
+    test = trainx.reshape(3,699,3)
+    print(test)
+    print(np.shape(trainy))
+    testa = trainy.reshape(3,699)
+    print(testa)
     n_neurons = 3;
 
     model = Sequential()
     model.add(LSTM(n_neurons,input_shape=(3,3)))
     model.add(Dense(3))
-    model.compile(loss='mae',optimizer='adam')
-    #history = model.fit(trainx, trainy, epochs=100, batch_size=1, validation_data=(testx, testy), verbose=2, shuffle=False)
+
+    model.compile(loss='mae',optimizer='adam',metrics=['accuracy'])
+    history = model.fit(trainx, trainy, epochs=200, batch_size=10, verbose=2, shuffle=False)
 
     #plt.plot(history.history['loss'], label='train')
    # plt.plot(history.history['val_loss'], label='test')
    # plt.legend()
    # plt.show()
-    testx = testx.reshape(300,1,3)
-    print(np.shape(testx))
+  #  testx = testx.reshape(300,1,3)
+  #  print(np.shape(testx))
     yhat = model.predict(testx)
     yhat = yhat.reshape(300,1)
     yhat = yhat[:100]
@@ -142,20 +210,6 @@ def runLSTM(trainx, trainy, testx, testy, scaler):
 
     testx = testx[:100]
 
-    # invert scaling for forecast
-    #test_x = testx.reshape((testx.shape[0], testx.shape[2]))
-    #inv_yhat = np.concatenate((yhat, testx[:, 1:]), axis=0)
-    #inv_yhat = scaler.inverse_transform(inv_yhat)
-    #inv_yhat = inv_yhat[:, 0]
-    # invert scaling for actual
-    #test_y = testy.reshape((len(testy), 1))
-    #inv_y = np.concatenate((test_y, test_x[:, 1:]), axis=1)
-    #inv_y = scaler.inverse_transform(inv_y)
-    #inv_y = inv_y[:, 0]
-    # calculate RMSE
-
-    #rmse = math.sqrt(metrics.mean_squared_error(inv_y, inv_yhat))
-    #print('Test RMSE: %.3f' % rmse)
 
 
 def readDataSet(size_samples):
@@ -201,7 +255,10 @@ def readDataSet(size_samples):
                 speed.append(column)
             if "p" in headers[index]:
                 weight.append(column)
-        for index, values in enumerate(bearingright):
+        # transform data to be stationary
+        diff_series = difference(bearingright, 1)
+        diff_values = np.array(diff_series.values)
+        for index, values in enumerate(diff_values):
             data.append([speed[index], weight[index], bearingright[index]])
 
     data = np.array(data)
@@ -310,7 +367,7 @@ def prepare_data(series, n_test, n_lag, n_seq, n_samples):
     # normalize
     scaler = preprocessing.MinMaxScaler(feature_range=(0, 1))
     scaled = scaler.fit_transform(values)
-
+    print(scaled)
     sizei = 0
     sizef = int(len(scaled)/n_samples)
     value = sizef
@@ -318,30 +375,48 @@ def prepare_data(series, n_test, n_lag, n_seq, n_samples):
 
     # Change to a specific dataset
     for i in range(0, 3):
-        supervised = series_to_supervised(scaled[sizei:sizef], 1, 1)
+        supervised = series_to_supervised(scaled[sizei:sizef], 1, 10)
         sizei = sizef
         sizef += value
         # Drop columns we don't want to predict
-        supervised.drop(supervised.columns[[3, 4]], axis=1, inplace=True)
+        #6,7,9,10,12,13,15,16,18,19,21,22,24,25,27,28,30,31
+        supervised.drop(supervised.columns[[3, 4,6,7,9,10,12,13,15,16,18,19,21,22,24,25,27,28,30,31]], axis=1, inplace=True)
+
         values = supervised.values
         for tuple in values:
             newdataset.append(tuple)
 
     newdataset = np.array(newdataset)
+
     # split between train and test
     train, test = newdataset[0:-n_test], newdataset[-n_test:]
 
-    train_X, train_Y, test_X, test_Y = train[:, :-1], train[:, -1], test[:, :-1], test[:, -1]
+    #train_X, train_Y, test_X, test_Y = train[:, :-1], train[:, -1], test[:, :-1], test[:, -1]
 
+   # print(np.shape(train_X))
     # split between samples
-    train_Y = train_Y.reshape((int(len(train_X)/n_samples), n_samples))
-    train_X = train_X.reshape((int(len(train_X)/n_samples), n_samples, train_X.shape[1]))
+    #train_Y = train_Y.reshape((int(len(train_X)/n_samples), n_samples))
+    #train_X = train_X.reshape((int(len(train_X)/n_samples), n_samples, train_X.shape[1]))
 
-    test_Y = test_Y.reshape((int(len(test_X)/n_samples), n_samples))
-    test_X = test_X.reshape((int(len(test_X)/n_samples),n_samples,3))
+    #test_Y = test_Y.reshape((int(len(test_X)/n_samples), n_samples))
+    #test_X = test_X.reshape((int(len(test_X)/n_samples),n_samples,3))
+    #test_X = test_X.reshape((400, n_samples, 3))
+    return train,test
 
-    return train_X, train_Y, test_X, test_Y
 
+def persistence(last_ob, n_seq):
+    return [last_ob for i in range(n_seq)]
+
+
+def make_forecasts(train, test, n_lag, n_seq):
+    forecasts = list()
+    for i in range(len(test)):
+        X, y = test[i, 0:n_lag], test[i, n_lag:]
+        # make forecast
+        forecast = persistence(X[-1], n_seq)
+        # store the forecast
+        forecasts.append(forecast)
+    return forecasts
 
 def main():
 
@@ -357,12 +432,48 @@ def main():
     # TESTE LSTM #
 
     # prepare data #
-    train_X, train_Y, test_X, test_Y = prepare_data(dataset, n_test, 1, 3, 3)
+    train,test = prepare_data(dataset, n_test, 1, 3, 3)
 
+    trainX = train[:,0:3]
+    trainY = train[:,3:]
+
+    trainX = trainX.reshape(trainX.shape[0],1,trainX.shape[1])
+    testX = test[:,0:3]
+    testX = testX.reshape(testX.shape[0], 1, testX.shape[1])
+    testY = test[:,3:]
+
+    testando = []
+    testando.append(testX[0])
+    testando.append(testX[1])
+    testando.append(testX[2])
+
+    testandoy = []
+    testandoy.append(testY[0])
+    testandoy.append(testY[1])
+    testandoy.append(testY[2])
+    testando = np.array(testando)
+    print(np.shape(testando))
+    #print(testY)
+    #print(np.shape(testY))
     # run LSTM #
     scaler = preprocessing.MinMaxScaler(feature_range=(0, 1))
-    runLSTM(train_X,train_Y,test_X,test_Y,scaler)
+    #runLSTM(train_X,train_Y,test_X,test_Y,scaler)
+    model = fit_lstm(trainX,trainY,1,10,1,50,1)
+    #forecasts = make_forecasts(model,1, train_X, train_Y, test_X,test_Y, 1, 10)
 
+    yhat = model.predict(testando,1)
+    #yhat = yhat.reshape(300, 1)
+    #yhat = yhat[:100]
+    #testy = testY.reshape(300, 1)
+    #testy = testy[:100]
+    #print(list(yhat))
+    #print(list(testY))
+
+
+    plt.plot(yhat, label='results')
+    plt.plot(testandoy, label="realResults")
+    plt.legend()
+    plt.show()
     # END TESTE #
 
 main()
